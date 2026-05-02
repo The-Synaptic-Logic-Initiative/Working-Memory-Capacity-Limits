@@ -28,3 +28,4 @@ To create an optimized, production-ready build in the `dist` folder:
 \`\`\`bash
 npm run build
 \`\`\`
+or try here- https://the-synaptic-logic-initiative.github.io/Working-Memory-Capacity-Limits-1/
