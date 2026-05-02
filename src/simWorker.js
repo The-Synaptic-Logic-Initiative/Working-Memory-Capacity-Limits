@@ -1,8 +1,14 @@
+/**
+ * Simulation Web Worker
+ * Runs the SNN engine off the main thread so the UI never blocks.
+ * Uses setTimeout (not requestAnimationFrame — RAF doesn't exist in Workers).
+ */
 import { SimulationEngine } from './SimulationEngine.js';
 
 let engine = null;
-let loopTimeout = null; // setTimeout handle — requestAnimationFrame does NOT exist in Workers
+let loopTimeout = null;
 let lastTimestamp = 0;
+let isRunning = false;
 
 self.onmessage = (e) => {
   const { type, payload } = e.data;
@@ -10,6 +16,7 @@ self.onmessage = (e) => {
   switch (type) {
     case 'INIT':
       engine = new SimulationEngine(payload);
+      postState();
       break;
 
     case 'UPDATE_PARAMS':
@@ -27,10 +34,12 @@ self.onmessage = (e) => {
     case 'RESET':
       stopLoop();
       if (engine) engine.reset();
+      postState();
       break;
 
     case 'START':
-      if (!loopTimeout) {
+      if (!isRunning) {
+        isRunning = true;
         lastTimestamp = performance.now();
         scheduleLoop();
       }
@@ -41,7 +50,7 @@ self.onmessage = (e) => {
       break;
 
     case 'STEP':
-      if (engine) {
+      if (engine && !isRunning) {
         engine.step();
         postState();
       }
@@ -50,6 +59,7 @@ self.onmessage = (e) => {
 };
 
 function stopLoop() {
+  isRunning = false;
   if (loopTimeout !== null) {
     clearTimeout(loopTimeout);
     loopTimeout = null;
@@ -57,22 +67,15 @@ function stopLoop() {
 }
 
 function scheduleLoop() {
-  // Target ~60fps (16ms). Use setTimeout which IS available in workers.
-  loopTimeout = setTimeout(run, 16);
+  if (!isRunning) return;
+  loopTimeout = setTimeout(run, 16); // ~60fps target
 }
 
 function run() {
   loopTimeout = null;
-  if (!engine) return;
+  if (!engine || !isRunning) return;
 
-  const now = performance.now();
-  const dt_real = now - lastTimestamp;
-  lastTimestamp = now;
-
-  // Run a batch of simulation steps to match the desired sim_speed
-  // sim_speed: 1 = realtime, 2 = 2x faster, etc.
   const sim_speed = engine.params.sim_speed || 1;
-  // Steps to run in 16ms of real time at the given sim_speed
   const steps_per_frame = Math.max(1, Math.round((16 * sim_speed) / engine.params.dt));
 
   for (let i = 0; i < steps_per_frame; i++) {
@@ -80,18 +83,31 @@ function run() {
   }
 
   postState();
-  scheduleLoop(); // queue next frame
+  scheduleLoop();
 }
 
 function postState() {
+  if (!engine) return;
+
+  // Transferable arrays for performance — clone typed arrays for safe transfer
+  const state = engine.getFullState();
+
   self.postMessage({
     type: 'STATE_UPDATE',
     payload: {
-      t: engine.t,
-      V: engine.V,
-      spikes: engine.spikes,
-      firing_rates: engine.firing_rates,
-      stimuli: engine.stimuli,
+      t: state.t,
+      V: Array.from(state.V),
+      spikes: state.spikes.slice(-500), // last 500 spikes for raster
+      firing_rates: Array.from(state.firing_rates),
+      stimuli: Array.from(state.stimuli),
+      active: state.active,
+      trace_exc: Array.from(state.trace_exc),
+      trace_inh: Array.from(state.trace_inh),
+      capacity_history: state.capacity_history.slice(-400), // last 400 points
+      suppression_history: state.suppression_history.slice(-400),
+      active_count: state.active_count,
+      suppression_floor: state.suppression_floor,
+      predicted_capacity: state.predicted_capacity,
     },
   });
 }
