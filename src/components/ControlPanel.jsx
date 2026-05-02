@@ -1,186 +1,272 @@
-import React from 'react';
-import { Play, Pause, RefreshCw, ChevronRight, Sliders, Layers, Target } from 'lucide-react';
-import { clsx } from 'clsx';
+import React, { useRef, useEffect, useCallback } from 'react';
+import { Play, Pause, RotateCcw, SkipForward, ChevronDown, ChevronUp } from 'lucide-react';
+import { useState } from 'react';
 
-export default function ControlPanel({ 
-  params, updateParams, isRunning, start, stop, reset, step, 
-  loadItem, removeItem, firingRates, stimuli 
-}) {
-  const PRESETS = [
-    { name: "Miller's Classic", desc: "Default — 7±2 emergence", w_inh: 0.6 },
-    { name: "Break the Limit", desc: "Low inhibition, high capacity", w_inh: 0.2 },
-    { name: "Hard Suppress", desc: "High inhibition, low capacity", w_inh: 1.1 },
-  ];
+function InhibitionDial({ value, onChange }) {
+  const canvasRef = useRef(null);
+  const dragRef = useRef(null);
+
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const size = 90;
+    canvas.width = size;
+    canvas.height = size;
+    const cx = size / 2, cy = size / 2, r = 32;
+
+    ctx.clearRect(0, 0, size, size);
+
+    // Track
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0.75 * Math.PI, 2.25 * Math.PI);
+    ctx.strokeStyle = '#1e3a5f';
+    ctx.lineWidth = 5;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    // Value arc
+    const pct = (value - 0.1) / 1.4;
+    const endAngle = 0.75 * Math.PI + pct * 1.5 * Math.PI;
+    const hue = 200 - pct * 170;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0.75 * Math.PI, endAngle);
+    ctx.strokeStyle = `hsl(${hue},85%,55%)`;
+    ctx.lineWidth = 5;
+    ctx.stroke();
+
+    // Tick marks
+    for (let i = 0; i <= 10; i++) {
+      const a = (0.75 + (i / 10) * 1.5) * Math.PI;
+      const r1 = 38, r2 = i % 5 === 0 ? 32 : 35;
+      ctx.beginPath();
+      ctx.moveTo(cx + r1 * Math.cos(a), cy + r1 * Math.sin(a));
+      ctx.lineTo(cx + r2 * Math.cos(a), cy + r2 * Math.sin(a));
+      ctx.strokeStyle = '#2a4a7a';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // Needle
+    const angle = (0.75 + pct * 1.5) * Math.PI;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + 22 * Math.cos(angle), cy + 22 * Math.sin(angle));
+    ctx.strokeStyle = '#06d6f0';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+
+    // Center dot
+    ctx.beginPath();
+    ctx.arc(cx, cy, 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#06d6f0';
+    ctx.fill();
+  }, [value]);
+
+  useEffect(() => { draw(); }, [draw]);
+
+  const handleMouseDown = (e) => {
+    dragRef.current = { startY: e.clientY, startVal: value };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleMouseMove = (e) => {
+    if (!dragRef.current) return;
+    const dy = (dragRef.current.startY - e.clientY) / 100;
+    const next = Math.min(1.5, Math.max(0.1, dragRef.current.startVal + dy));
+    onChange(parseFloat(next.toFixed(2)));
+  };
+
+  const handleMouseUp = () => {
+    dragRef.current = null;
+    window.removeEventListener('mousemove', handleMouseMove);
+    window.removeEventListener('mouseup', handleMouseUp);
+  };
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
-      {/* Simulation Controls */}
-      <div className="p-6 border-b border-border bg-black/20">
-        <h2 className="text-xs font-bold text-text-tertiary tracking-widest mb-4 flex items-center gap-2">
-          <Target className="w-3.5 h-3.5" />
-          SIMULATION CONTROLS
-        </h2>
-        
-        <div className="grid grid-cols-2 gap-3 mb-4">
-          <button 
-            onClick={isRunning ? stop : start}
-            className={clsx(
-              "flex items-center justify-center gap-2 py-3 rounded-md text-sm font-bold transition-all",
-              isRunning ? "bg-accent-red/10 text-accent-red hover:bg-accent-red/20" : "bg-accent-green/10 text-accent-green hover:bg-accent-green/20"
-            )}
-          >
-            {isRunning ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
-            {isRunning ? 'PAUSE' : 'START'}
-          </button>
-          <button 
-            onClick={reset}
-            className="flex items-center justify-center gap-2 py-3 bg-bg-tertiary text-text-secondary hover:text-text-primary rounded-md text-sm font-bold border border-border hover:border-text-tertiary transition-all"
-          >
-            <RefreshCw className="w-4 h-4" />
-            RESET
-          </button>
-        </div>
+    <div className="flex flex-col items-center gap-1">
+      <canvas
+        ref={canvasRef}
+        width={90} height={90}
+        className="cursor-ns-resize select-none"
+        onMouseDown={handleMouseDown}
+        title="Drag up/down to adjust lateral inhibition"
+      />
+      <span className="text-accent-cyan mono text-sm font-medium">{value.toFixed(2)}</span>
+    </div>
+  );
+}
 
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] mono text-text-tertiary uppercase">Sim Speed</span>
-          <div className="flex bg-bg-tertiary rounded p-1 border border-border">
-            {[0.5, 1, 2, 5, 10].map(speed => (
-              <button
-                key={speed}
-                onClick={() => updateParams({ sim_speed: speed })}
-                className={clsx(
-                  "px-2 py-1 text-[10px] mono rounded transition-all",
-                  params.sim_speed === speed ? "bg-accent-blue text-white" : "text-text-tertiary hover:text-text-secondary"
-                )}
-              >
-                {speed}x
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+export default function ControlPanel({
+  params, updateParams, isRunning, start, stop, reset, step, togglePlay,
+  loadItem, removeItem, firingRates, stimuli, active,
+}) {
+  const [expertOpen, setExpertOpen] = useState(false);
+  const predictedCap = Math.max(1, Math.min(params.n_groups, Math.round((params.w_exc / params.w_inh) * 3.8)));
 
-      {/* Item Loader */}
-      <div className="p-6 border-b border-border overflow-y-auto">
-        <h2 className="text-xs font-bold text-text-tertiary tracking-widest mb-4 flex items-center gap-2">
-          <Layers className="w-3.5 h-3.5" />
-          ITEM LOADER (WORKING MEMORY SLOTS)
-        </h2>
-        
-        <div className="grid grid-cols-2 gap-2">
-          {Array.from({ length: 10 }).map((_, i) => {
-            const isLoaded = stimuli[i] > 0;
-            const isActive = firingRates[i] > 10;
-            const rate = Math.round(firingRates[i]);
+  const speeds = [1, 3, 8];
 
+  const getItemState = (g) => {
+    if (stimuli[g] > 0) return 'loading';
+    if (active[g]) return 'active';
+    if (firingRates[g] > 0 && firingRates[g] <= params.active_rate_hz) return 'decaying';
+    return 'empty';
+  };
+
+  const handleItemClick = (g) => {
+    const s = getItemState(g);
+    if (s === 'active' || s === 'loading') removeItem(g);
+    else loadItem(g);
+  };
+
+  const itemColors = {
+    empty:   'border-border bg-bg-tertiary text-text-tertiary',
+    loading: 'border-accent-cyan bg-accent-cyan/10 text-accent-cyan pulse-loading',
+    active:  'border-accent-green bg-accent-green/10 text-accent-green',
+    decaying:'border-accent-amber bg-accent-amber/5 text-accent-amber',
+  };
+
+  return (
+    <div className="flex flex-col gap-0">
+
+      {/* ITEMS */}
+      <div className="p-3 border-b border-border">
+        <p className="text-xs mono text-text-tertiary tracking-widest mb-2">MEMORY ITEMS</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {Array.from({ length: params.n_groups }, (_, g) => {
+            const s = getItemState(g);
+            const hz = Math.round(firingRates[g] ?? 0);
             return (
               <button
-                key={i}
-                onClick={() => isLoaded || isActive ? removeItem(i) : loadItem(i)}
-                className={clsx(
-                  "p-3 rounded-lg border text-left transition-all relative group overflow-hidden",
-                  isActive 
-                    ? "bg-accent-green/5 border-accent-green/30 text-accent-green" 
-                    : isLoaded 
-                      ? "bg-accent-cyan/5 border-accent-cyan/30 text-accent-cyan pulse-loading"
-                      : "bg-bg-tertiary border-border text-text-tertiary hover:border-text-secondary"
-                )}
+                key={g}
+                onClick={() => handleItemClick(g)}
+                className={`flex flex-col items-center justify-center py-2 rounded border text-xs transition-all ${itemColors[s]}`}
               >
-                <div className="flex justify-between items-start mb-1">
-                  <span className="text-[10px] mono">SLOT {i + 1}</span>
-                  {isActive && <div className="w-1.5 h-1.5 rounded-full bg-accent-green shadow-[0_0_8px_rgba(16,185,129,0.8)]" />}
-                </div>
-                <div className="text-sm font-bold truncate">
-                  {isActive ? 'ACTIVE' : isLoaded ? 'LOADING...' : 'EMPTY'}
-                </div>
-                <div className="text-[9px] mono opacity-60">
-                  {rate > 0 ? `${rate} Hz` : '0 Hz'}
-                </div>
+                <span className="font-bold text-base mono">{g + 1}</span>
+                <span className="text-[10px] opacity-70">{s === 'empty' ? '—' : `${hz} Hz`}</span>
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* The Hero Dial - Inhibition Control */}
-      <div className="p-6 border-b border-border bg-black/20">
-        <h2 className="text-xs font-bold text-text-tertiary tracking-widest mb-2 flex items-center gap-2">
-          <Sliders className="w-3.5 h-3.5" />
-          LATERAL INHIBITION STRENGTH
-        </h2>
-        <p className="text-[10px] text-text-tertiary mb-6 uppercase leading-tight">
-          Controls competition between chunks. Higher values reduce capacity.
-        </p>
-
-        <div className="flex flex-col items-center py-4">
-          <input 
-            type="range" 
-            min="0.1" 
-            max="1.2" 
-            step="0.05"
+      {/* INHIBITION DIAL */}
+      <div className="p-3 border-b border-border">
+        <p className="text-xs mono text-text-tertiary tracking-widest mb-2">LATERAL INHIBITION</p>
+        <div className="flex items-center gap-3">
+          <InhibitionDial
             value={params.w_inh}
-            onChange={(e) => updateParams({ w_inh: parseFloat(e.target.value) })}
-            className="w-full h-1.5 bg-bg-tertiary rounded-lg appearance-none cursor-pointer accent-accent-blue"
+            onChange={(v) => updateParams({ w_inh: v })}
           />
-          <div className="flex justify-between w-full mt-2 mono text-[10px] text-text-tertiary">
-            <span>WEAK (CAP ~12)</span>
-            <span className="text-accent-blue font-bold text-lg">{params.w_inh.toFixed(2)}</span>
-            <span>STRONG (CAP ~2)</span>
+          <div className="flex flex-col gap-2 flex-1">
+            <div className="text-xs text-text-secondary">
+              Predicted capacity
+              <div className="text-accent-amber font-bold mono text-lg">~{predictedCap}</div>
+            </div>
+            <div className="flex flex-col gap-1">
+              {[['LOW ~10', 0.3], ['MED ~7', 1.5], ['HIGH ~3', 2.8]].map(([label, val]) => (
+                <button
+                  key={label}
+                  onClick={() => updateParams({ w_inh: val })}
+                  className="text-[10px] mono px-2 py-1 border border-border rounded hover:border-accent-cyan hover:text-accent-cyan text-text-tertiary transition-all"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-
-        <div className="grid grid-cols-3 gap-2 mt-4">
-          {PRESETS.map(preset => (
-            <button
-              key={preset.name}
-              onClick={() => updateParams({ w_inh: preset.w_inh })}
-              className={clsx(
-                "p-2 rounded text-[9px] mono border transition-all text-center leading-tight",
-                params.w_inh === preset.w_inh 
-                  ? "bg-accent-blue/10 border-accent-blue text-accent-blue" 
-                  : "bg-bg-tertiary border-border text-text-tertiary hover:border-text-secondary"
-              )}
-            >
-              {preset.name}
-            </button>
-          ))}
         </div>
       </div>
 
-      {/* Advanced Parameters */}
-      <div className="p-6">
-        <details className="group">
-          <summary className="text-xs font-bold text-text-tertiary tracking-widest flex items-center justify-between cursor-pointer list-none">
-            <span className="flex items-center gap-2">
-              <Sliders className="w-3.5 h-3.5" />
-              EXPERT MODE
-            </span>
-            <ChevronRight className="w-4 h-4 group-open:rotate-90 transition-transform" />
-          </summary>
-          <div className="mt-4 space-y-4">
+      {/* SIM CONTROLS */}
+      <div className="p-3 border-b border-border">
+        <p className="text-xs mono text-text-tertiary tracking-widest mb-2">SIMULATION</p>
+        <button
+          onClick={togglePlay}
+          className={`w-full flex items-center justify-center gap-2 py-2 rounded border mono text-sm font-medium transition-all mb-2 ${
+            isRunning
+              ? 'border-accent-amber text-accent-amber bg-accent-amber/10'
+              : 'border-accent-blue text-accent-blue bg-accent-blue/10'
+          }`}
+        >
+          {isRunning ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+          {isRunning ? 'PAUSE' : 'PLAY'}
+        </button>
+        <div className="flex gap-1 mb-2">
+          {speeds.map(s => (
+            <button
+              key={s}
+              onClick={() => updateParams({ sim_speed: s })}
+              className={`flex-1 text-xs mono py-1.5 rounded border transition-all ${
+                params.sim_speed === s
+                  ? 'border-accent-green text-accent-green bg-accent-green/10'
+                  : 'border-border text-text-tertiary hover:border-text-secondary'
+              }`}
+            >
+              {s}×
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1">
+          <button
+            onClick={reset}
+            className="flex-1 flex items-center justify-center gap-1 text-xs mono py-1.5 rounded border border-accent-red/50 text-accent-red hover:bg-accent-red/10 transition-all"
+          >
+            <RotateCcw className="w-3 h-3" /> RESET
+          </button>
+          <button
+            onClick={step}
+            disabled={isRunning}
+            className="flex-1 flex items-center justify-center gap-1 text-xs mono py-1.5 rounded border border-border text-text-tertiary hover:border-text-secondary disabled:opacity-30 transition-all"
+          >
+            <SkipForward className="w-3 h-3" /> STEP
+          </button>
+        </div>
+      </div>
+
+      {/* EXPERT MODE */}
+      <div className="p-3">
+        <button
+          onClick={() => setExpertOpen(!expertOpen)}
+          className="flex items-center justify-between w-full text-xs mono text-text-tertiary tracking-widest mb-2 hover:text-text-secondary transition-colors"
+        >
+          EXPERT MODE
+          {expertOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        </button>
+        {expertOpen && (
+          <div className="flex flex-col gap-3">
             {[
-              { label: "Membrane Leak (τm)", key: "tau_m", min: 5, max: 100, step: 1 },
-              { label: "Excitation (w_exc)", key: "w_exc", min: 0.1, max: 2.0, step: 0.05 },
-              { label: "Reset Potential", key: "V_reset", min: -90, max: -60, step: 1 },
-            ].map(p => (
-              <div key={p.key}>
-                <div className="flex justify-between text-[10px] mono text-text-secondary mb-1">
-                  <span>{p.label}</span>
-                  <span className="text-accent-cyan">{params[p.key]}</span>
+              { key: 'w_exc', label: 'Excitatory weight', min: 0.5, max: 5, step: 0.1 },
+              { key: 'tau_m', label: 'Leak time const (ms)', min: 5, max: 60, step: 1 },
+              { key: 'noise_std', label: 'Noise (mV)', min: 0, max: 2, step: 0.1 },
+              { key: 'I_stim', label: 'Stim current (nA)', min: 0.5, max: 5, step: 0.1 },
+            ].map(({ key, label, min, max, step: s }) => (
+              <div key={key}>
+                <div className="flex justify-between text-[10px] text-text-secondary mb-1">
+                  <span>{label}</span>
+                  <span className="mono text-white">{params[key]}</span>
                 </div>
-                <input 
-                  type="range" 
-                  min={p.min} 
-                  max={p.max} 
-                  step={p.step}
-                  value={params[p.key]}
-                  onChange={(e) => updateParams({ [p.key]: parseFloat(e.target.value) })}
-                  className="w-full h-1 bg-bg-tertiary rounded-lg appearance-none cursor-pointer accent-accent-cyan"
+                <input
+                  type="range" min={min} max={max} step={s}
+                  value={params[key]}
+                  onChange={e => updateParams({ [key]: parseFloat(e.target.value) })}
+                  className="w-full h-1 accent-blue-500"
                 />
               </div>
             ))}
+            <button
+              onClick={() => updateParams({
+                w_exc: 2.8, w_inh: 1.5, tau_m: 20,
+                noise_std: 0.3, I_stim: 2.5,
+              })}
+              className="text-[10px] mono text-text-tertiary border border-border rounded py-1 hover:border-accent-blue hover:text-accent-blue transition-all"
+            >
+              RESET TO DEFAULTS
+            </button>
           </div>
-        </details>
+        )}
       </div>
     </div>
   );
