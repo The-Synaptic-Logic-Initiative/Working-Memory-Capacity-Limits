@@ -77,7 +77,7 @@ export class SimulationEngine {
     }
   }
 
-  step() {
+step() {
     const { 
       n_groups, n_exc_per_group, n_inh_per_group, 
       V_rest, V_threshold, V_reset, tau_m, R, refractory_period,
@@ -100,24 +100,28 @@ export class SimulationEngine {
         const idx = group_offset + n;
         const is_inh = n >= n_exc_per_group;
 
-        // Compute Input Current
         let I = 0;
+
+        // THE ULTIMATE FIX: The UI injects old, weak weights. 
+        // We multiply them by 10x here so they actually have the strength to overcome the cell wall's leak!
+        const SCALE = 10.0;
+
         if (!is_inh) {
-          I += external_I;
-          I += this.prev_exc_spikes[g] * w_exc;
-          I -= this.prev_inh_spikes[g] * w_rec_inh;
+          I += external_I * SCALE;
+          I += this.prev_exc_spikes[g] * (w_exc * SCALE);
+          I -= this.prev_inh_spikes[g] * (w_rec_inh * SCALE);
           
           for (let other_g = 0; other_g < n_groups; other_g++) {
             if (other_g !== g) {
-              I -= this.prev_inh_spikes[other_g] * w_inh;
+              I -= this.prev_inh_spikes[other_g] * (w_inh * SCALE);
             }
           }
         } else {
-          I += this.prev_exc_spikes[g] * w_drive_inh;
+          I += this.prev_exc_spikes[g] * (w_drive_inh * SCALE);
         }
 
-        // BIOLOGICAL NOISE: Prevent perfect synchronization ("Synchronous Death")
-        I += (Math.random() - 0.5) * 5.0; 
+        // Biological noise (scaled up to match the new current) to create natural desynchronization
+        I += (Math.random() - 0.5) * 40.0; 
 
         // LIF update
         if (this.refractory[idx] > 0) {
@@ -140,8 +144,7 @@ export class SimulationEngine {
       }
     }
 
-    // THE MAGIC FIX: NMDA Synaptic Decay
-    // Multiply by 0.99 to make the chemical trace linger longer!
+    // NMDA Synaptic Decay (0.99)
     for (let g = 0; g < n_groups; g++) {
       this.prev_exc_spikes[g] = (this.prev_exc_spikes[g] * 0.99) + group_exc_spikes[g];
       this.prev_inh_spikes[g] = (this.prev_inh_spikes[g] * 0.99) + group_inh_spikes[g];
