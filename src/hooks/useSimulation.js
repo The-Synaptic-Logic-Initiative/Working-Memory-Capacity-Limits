@@ -1,76 +1,88 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { DEFAULTS } from '../SimulationEngine';
+import { DEFAULTS } from '../SimulationEngine.js';
+
+const INITIAL_STATE = {
+  t: 0,
+  V: [],
+  spikes: [],
+  firing_rates: new Array(DEFAULTS.n_groups).fill(0),
+  stimuli: new Array(DEFAULTS.n_groups).fill(0),
+  active: new Array(DEFAULTS.n_groups).fill(false),
+  trace_exc: new Array(DEFAULTS.n_groups).fill(0),
+  trace_inh: new Array(DEFAULTS.n_groups).fill(0),
+  capacity_history: [],
+  suppression_history: [],
+  active_count: 0,
+  suppression_floor: 0,
+  predicted_capacity: 7,
+};
 
 export function useSimulation() {
-  const [state, setState] = useState({
-    t: 0,
-    V: new Float32Array(0),
-    spikes: [],
-    firing_rates: new Float32Array(0),
-    stimuli: new Array(DEFAULTS.n_groups).fill(0),
-  });
-  const [params, setParams] = useState(DEFAULTS);
-  const [isRunning, setIsRunning] = useState(false);
   const workerRef = useRef(null);
+  const [state, setState] = useState(INITIAL_STATE);
+  const [params, setParams] = useState({ ...DEFAULTS });
+  const [isRunning, setIsRunning] = useState(false);
 
+  // Init worker on mount
   useEffect(() => {
-    // Initialize Web Worker
-    workerRef.current = new Worker(new URL('../simWorker.js', import.meta.url), { type: 'module' });
+    const worker = new Worker(
+      new URL('../simWorker.js', import.meta.url),
+      { type: 'module' }
+    );
 
-    workerRef.current.onmessage = (e) => {
-      const { type, payload } = e.data;
-      if (type === 'STATE_UPDATE') {
-        setState(payload);
+    worker.onmessage = (e) => {
+      if (e.data.type === 'STATE_UPDATE') {
+        setState(e.data.payload);
       }
     };
 
-    workerRef.current.postMessage({ type: 'INIT', payload: params });
+    worker.onerror = (err) => {
+      console.error('SimWorker error:', err);
+    };
+
+    workerRef.current = worker;
+    worker.postMessage({ type: 'INIT', payload: { ...DEFAULTS } });
 
     return () => {
-      workerRef.current.terminate();
+      worker.postMessage({ type: 'STOP' });
+      worker.terminate();
     };
   }, []);
 
   const start = useCallback(() => {
-    workerRef.current.postMessage({ type: 'START' });
     setIsRunning(true);
+    workerRef.current?.postMessage({ type: 'START' });
   }, []);
 
   const stop = useCallback(() => {
-    workerRef.current.postMessage({ type: 'STOP' });
     setIsRunning(false);
+    workerRef.current?.postMessage({ type: 'STOP' });
   }, []);
 
   const reset = useCallback(() => {
-    workerRef.current.postMessage({ type: 'RESET' });
-    setState(prev => ({
-      ...prev,
-      t: 0,
-      V: new Float32Array(prev.V.length).fill(params.V_rest),
-      spikes: [],
-      firing_rates: new Float32Array(prev.firing_rates.length).fill(0),
-      stimuli: new Array(params.n_groups).fill(0),
-    }));
-  }, [params.V_rest, params.n_groups]);
+    setIsRunning(false);
+    setState(INITIAL_STATE);
+    workerRef.current?.postMessage({ type: 'RESET' });
+  }, []);
+
+  const step = useCallback(() => {
+    workerRef.current?.postMessage({ type: 'STEP' });
+  }, []);
 
   const updateParams = useCallback((newParams) => {
     setParams(prev => {
-      const updated = { ...prev, ...newParams };
-      workerRef.current.postMessage({ type: 'UPDATE_PARAMS', payload: updated });
-      return updated;
+      const merged = { ...prev, ...newParams };
+      workerRef.current?.postMessage({ type: 'UPDATE_PARAMS', payload: newParams });
+      return merged;
     });
   }, []);
 
   const loadItem = useCallback((groupIndex) => {
-    workerRef.current.postMessage({ type: 'LOAD_ITEM', payload: groupIndex });
+    workerRef.current?.postMessage({ type: 'LOAD_ITEM', payload: groupIndex });
   }, []);
 
   const removeItem = useCallback((groupIndex) => {
-    workerRef.current.postMessage({ type: 'REMOVE_ITEM', payload: groupIndex });
-  }, []);
-
-  const step = useCallback(() => {
-    workerRef.current.postMessage({ type: 'STEP' });
+    workerRef.current?.postMessage({ type: 'REMOVE_ITEM', payload: groupIndex });
   }, []);
 
   return {
@@ -80,9 +92,9 @@ export function useSimulation() {
     start,
     stop,
     reset,
+    step,
     updateParams,
     loadItem,
     removeItem,
-    step
   };
 }
