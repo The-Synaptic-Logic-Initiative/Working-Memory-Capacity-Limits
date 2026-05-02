@@ -2,16 +2,14 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: ["main"] # Make sure this matches your default branch name (main or master)
-  workflow_dispatch: # Allows you to click a button to run it manually
+    branches: ["main"] 
+  workflow_dispatch: 
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment
 concurrency:
   group: "pages"
   cancel-in-progress: true
@@ -29,10 +27,10 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24 # Updated to fix the yellow warning!
           
       - name: Install dependencies
-        run: npm ci
+        run: npm install # Changed to be more forgiving with manual uploads!
         
       - name: Build
         run: npm run build
@@ -43,7 +41,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './dist' # Vite puts the built website in the 'dist' folder
+          path: './dist' 
           
       - name: Deploy to GitHub Pages
         id: deployment
