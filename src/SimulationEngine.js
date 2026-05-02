@@ -17,14 +17,14 @@ export const DEFAULTS = {
   n_exc_per_group: 15,
   n_inh_per_group: 3,
 
-  // Weight parameters
-  w_exc: 12.0,            
+  // Weight parameters (Boosted for better fire sustainability)
+  w_exc: 18.0,            
   w_inh: 8.0,            
   w_rec_inh: 5.0,        
   w_drive_inh: 12.0,      
 
   // Input parameters
-  I_stim: 25.0,           
+  I_stim: 25.0,          // Strong enough to overcome membrane leak
   stim_duration: 100,    // ms
 
   // Simulation
@@ -60,7 +60,7 @@ export class SimulationEngine {
     // Firing rate tracking (sliding window)
     this.firing_rates = new Float32Array(n_groups).fill(0);
 
-    // CHANGED TO FLOAT32ARRAY: This allows the "chemical traces" to decay as decimals
+    // CHANGED TO FLOAT32ARRAY: Allows the "chemical traces" to decay as decimals
     this.prev_exc_spikes = new Float32Array(n_groups).fill(0);
     this.prev_inh_spikes = new Float32Array(n_groups).fill(0);
   }
@@ -116,7 +116,8 @@ export class SimulationEngine {
           I += this.prev_exc_spikes[g] * w_drive_inh;
         }
 
-        I += (Math.random() - 0.5) * 0.5;
+        // BIOLOGICAL NOISE: Prevent perfect synchronization ("Synchronous Death")
+        I += (Math.random() - 0.5) * 5.0; 
 
         // LIF update
         if (this.refractory[idx] > 0) {
@@ -139,11 +140,11 @@ export class SimulationEngine {
       }
     }
 
-    // THE MAGIC FIX: Synaptic Decay
-    // Instead of replacing the array, we multiply the old spikes by 0.95 so they slowly fade out!
+    // THE MAGIC FIX: NMDA Synaptic Decay
+    // Multiply by 0.99 to make the chemical trace linger longer!
     for (let g = 0; g < n_groups; g++) {
-      this.prev_exc_spikes[g] = (this.prev_exc_spikes[g] * 0.95) + group_exc_spikes[g];
-      this.prev_inh_spikes[g] = (this.prev_inh_spikes[g] * 0.95) + group_inh_spikes[g];
+      this.prev_exc_spikes[g] = (this.prev_exc_spikes[g] * 0.99) + group_exc_spikes[g];
+      this.prev_inh_spikes[g] = (this.prev_inh_spikes[g] * 0.99) + group_inh_spikes[g];
     }
     
     this.t += dt;
